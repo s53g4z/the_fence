@@ -1,0 +1,15 @@
+Elf32_Addr	4 bytes	unsigned	; uint, for addresses
+Elf32_Half	2 bytes	unsigned	; ushort
+Elf32_Off	4 bytes	unsigned	; uint, file offsets
+Elf32_Sword	4 bytes	signed		; int
+Elf32_Word	4 bytes	unsigned	; uint
+unsigned char	1 byte	unsigned	; uchar
+
+Elf64_Addr	8 bytes unsigned	; ull, for addresses
+Elf64_Off	8 bytes unsigned	; ull, file offsets
+Elf64_Half	2 bytes unsigned	; ushort
+Elf64_Word	4 bytes unsigned	; uint
+Elf64_Sword	4 bytes signed		; int
+Elf64_Xword	8 bytes unsigned	; ull
+Elf64_SXWord	8 bytes signed		; longlong
+unsigned char	1 byte unsigned		; uchar

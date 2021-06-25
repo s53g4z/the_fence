@@ -1,0 +1,21 @@
+#attributes provide vertex data to vertex shaders
+#uniforms are initialized by API calls
+#varyings pass calculated data from vertex shaders (rw) to frag shaders (ro)
+
+#cast variables to drop components
+
+#gl_* names are reserved
+#__* names might be reserved (?)
+
+#vec4 gl_FragColor or gl_FragData[gl_MaxDrawBuffers]
+#vec4 gl_FragCoord
+#bool gl_FrontFacing - "true if ... belongs to a front-facing primitive"
+#gl_PointCoord - 0.0 to 1.0
+
+#gl_Max...
+#MaxVertexAttibs,MaxVertexUniformVectors,MaxVaryingVectors,
+#MaxVertexTextureImageUnits,MaxCombinedTextureImageUnits,
+#MaxTextureImageUnits,MaxFragmentUniformVectors,
+#MaxDrawBuffers
+
+# generic vertex attribute index <-> attribute variable (until next link)

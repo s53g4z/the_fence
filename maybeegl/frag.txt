@@ -1,0 +1,10 @@
+precision mediump float;
+uniform sampler2D sampler;
+varying vec4 pos;
+
+void main() {
+	vec2 scaled = vec2(pos);
+	scaled = scaled * 256.0;
+	vec4 res = texture2D(sampler, scaled);
+	gl_FragColor = res;//vec4(255.0, 0.0, 0.0, 1.0);
+}
