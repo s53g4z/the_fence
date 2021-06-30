@@ -20,6 +20,7 @@ static egl_dat initialize_egl(void) {
 		EGL_GREEN_SIZE, 8,
 		EGL_RED_SIZE, 8,
 		EGL_DEPTH_SIZE, 24,
+		EGL_STENCIL_SIZE, 8,
 		EGL_NONE
 	};
 	EGLint num_config;
@@ -71,6 +72,10 @@ static void initialize_surface(egl_dat *ed, x_dat *xd) {
 
 static glsh initialize_glshads(void) {
 	glsh sh = { 0 };
+	
+	sh.ptr = safe_read("./texture1.rgb", &(sh.ptrsz));
+	assert(sh.ptr != NULL);
+	
 	return sh;
 }
 
@@ -98,28 +103,22 @@ static bool cleanup(egl_dat *ed, x_dat *xd, glsh *sh) {
 	return true;
 }
 
-// Take action based on keys 'a' and 'd'.
 void handleKeys(const XEvent *const e, keys *const k) {
-	const XKeyEvent xke = e->xkey;
 	const bool keyState = e->type == KeyPress;
-	uint32_t code = xke.keycode;
+	uint32_t code = e->xkey.keycode;
 	
 	if (code == 38 || code == 40) {
-		if (code == 38) {
+		if (code == 38)
 			k->keyA = keyState;
-		}
-		if (code == 40) {
+		if (code == 40)
 			k->keyD = keyState;
-		}
 		if (k->keyA && k->keyD)
 			k->keyA = k->keyD = false;
 	} else if (code == 25 || code == 39) {
-		if (code == 25) {
+		if (code == 25)
 			k->keyW = keyState;
-		}
-		if (code == 39) {
+		if (code == 39)
 			k->keyS = keyState;
-		}
 		if (k->keyS && k->keyW)
 			k->keyS = k->keyW = false;
 	} else if (code == 27) {  // r
@@ -184,28 +183,59 @@ static bool fn(void) {
 	
 	glsh sh = initialize_glshads();
 	glViewport(0, 0, 500, 400);
-	draw(&k);
+	draw(&k, &sh);
 	eglSwapBuffers(ed.d, ed.s);
 	
+	struct timespec prev = { 0 };
+	uint64_t frames = 0, now_xorg_timediff_sec = 0, keyPresses = 0;
+	bool seenFirstEvent = false;
 	for (;;) {
-		XEvent e;
-		XNextEvent(xd.d, &e);
-		if (e.type == KeyPress || e.type == KeyRelease) {
-			if (e.xkey.keycode == 24)  // 'q'
-				return cleanup(&ed, &xd, &sh);
-			handleKeys(&e, &k);
-		} else if (e.type == ResizeRequest) {
-			//XResizeRequestEvent xrre = e.xresizerequest;
-			//int w = xrre.width;
-			//int h = xrre.height;
-			//glViewport(0, 0, w, h);
+		XEvent e = { 0 };
+		struct timespec now = { 0 };
+		
+		assert(TIME_UTC == timespec_get(&now, TIME_UTC));
+		//sleep(1);
+		if (elapsedTimeGreaterThanNS(&prev, &now, 1000000000)) {
+			prev = now;
+			fprintf(stderr, "DEBUG: %llu frames\n", (long long unsigned)frames);
+			frames = 0, keyPresses = 0;
+		}
+		while (XCheckMaskEvent(xd.d, -1, &e)) {
+			if ((e.type == KeyPress || e.type == KeyRelease)) {
+				if (e.type == KeyPress && keyPresses++ > 25) {
+					fprintf(stderr, "DEBUG: key ignored b/c quota exceeded\n");
+					continue;
+				}
+				if (!seenFirstEvent) {
+					now_xorg_timediff_sec = now.tv_sec - e.xkey.time/1000;
+					seenFirstEvent = true;
+				}
+				uint64_t approxX11time_sec = now.tv_sec - now_xorg_timediff_sec;
+				uint64_t keyAge = e.xkey.time/1000 - approxX11time_sec;
+				if (e.xkey.time/1000 < approxX11time_sec)  // approx = inaccurat
+					keyAge = approxX11time_sec - e.xkey.time/1000;
+				if (keyAge < 2) {
+					if (e.xkey.keycode == 24)  // 'q'
+						return cleanup(&ed, &xd, &sh);
+					handleKeys(&e, &k);
+				} else {
+					fprintf(stderr, "DEBUG: key age %llu, ignored\n",
+						(long long unsigned)keyAge);
+				}
+			} else if (e.type == ResizeRequest) {
+				//XResizeRequestEvent xrre = e.xresizerequest;
+				//int w = xrre.width;
+				//int h = xrre.height;
+				//glViewport(0, 0, w, h);
+			}
 		}
 
-		if (!draw(&k)) {
+		if (!draw(&k, &sh)) {
 			cleanup(&ed, &xd, &sh);
 			return false;
 		}
 		eglSwapBuffers(ed.d, ed.s);
+		frames++;
 	}
 	
 	return true;
