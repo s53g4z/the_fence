@@ -45,6 +45,7 @@ char *safe_read(const char *const filename, ssize_t *has_read) {
 	
 	char *buf = malloc(1);
 	ssize_t bufsiz = 1;
+	*has_read = 0;
 	for (;;) {
 		if (*has_read > SSIZE_MAX - (ssize_t)buf) {
 			free(buf);
@@ -86,4 +87,68 @@ bool elapsedTimeGreaterThanNS(struct timespec *const prev,
 	if (now->tv_sec - prev->tv_sec != 0)
 		return true;  // lots of time has elapsed already
 	return now->tv_nsec - prev->tv_nsec > ns;
+}
+
+struct coord {
+	float x;
+	float y;
+};
+
+// Helper fn for glPrintNum.
+void calculate_texture_coordinates(int dig, struct coord tc[4]) {
+	if (dig == 0) {
+		tc[0] = (struct coord) { .x = 0.33, .y = 0.05 };
+		tc[1] = (struct coord) { .x = 0.66, .y = 0.05 };
+		tc[2] = (struct coord) { .x = 0.66, .y = 0.02 + 0.33/2 };
+		tc[3] = (struct coord) { .x = 0.33, .y = 0.02 + 0.33/2 };
+	} else {
+		float tox = (dig-1)%3 * 0.33;  // texture offset x
+		float toy = 0.33;  // texture offset y
+		if (dig >= 1 && dig <= 3) {
+			toy = 0.66;
+		} else if ( dig >= 7 && dig <= 9) {
+			toy = 0.00;
+		}
+		tc[0] = (struct coord) { .x = 0.00 + tox, .y = 0.00 + toy };
+		tc[1] = (struct coord) { .x = 0.33 + tox, .y = 0.00 + toy };
+		tc[2] = (struct coord) { .x = 0.33 + tox, .y = 0.33 + toy };
+		tc[3] = (struct coord) { .x = 0.00 + tox, .y = 0.33 + toy };
+	}
+}
+
+// Helper fn for glPrintNum.
+void render_numbers(struct coord tc[4], ssize_t offsetX) {
+	glEnable(GL_TEXTURE_2D);
+	//glBindTexture(GL_TEXTURE_2D, textures[1]);
+	glBegin(GL_QUADS);
+		glColor3f(0.0, 1.0, 0.0);  // color backup in case texturing fails
+		glTexCoord2f(tc[0].x, tc[0].y);
+		glVertex3f(0 + offsetX, 0, -1);  // lower left
+		glTexCoord2f(tc[1].x, tc[1].y);
+		glVertex3f(1 + offsetX, 0, -1);  // lower right
+		glTexCoord2f(tc[2].x, tc[2].y);
+		glVertex3f(1 + offsetX, 1, -1);  // upper right
+		glTexCoord2f(tc[3].x, tc[3].y);
+		glVertex3f(0 + offsetX, 1, -1);  // upper left
+	glEnd();
+	glDisable(GL_TEXTURE_2D);
+}
+
+// Print a number to the left of the origin.
+void glPrintNum(uint64_t num, uint32_t textures[2]) {
+	glBindTexture(GL_TEXTURE_2D, textures[1]);  // the number texture
+	
+	ssize_t offsetX = -1;
+	for (;;) {
+		int dig = num % 10;
+		num /= 10;
+		
+		struct coord tc[4];  // texture coordinates to use
+		calculate_texture_coordinates(dig, tc);
+		render_numbers(tc, offsetX);
+		
+		if (num == 0)
+			break;
+		offsetX -= 1;
+	}
 }

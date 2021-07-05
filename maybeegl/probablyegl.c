@@ -30,13 +30,16 @@ static egl_dat initialize_egl(void) {
 	// hxxps://community.arm.com/developer/tools-software/oss-platforms
 	// /b/android-blog/posts/check-your-context-if-glcreateshader-returns-0
 	// -and-gl_5f00_invalid_5f00_operation
-	EGLint attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 1, EGL_NONE };
+	EGLint attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
 	ed.cxt = eglCreateContext(ed.d, ed.cfg[0], EGL_NO_CONTEXT, attribs);
 	
 	return ed;
 }
 
 static x_dat initialize_xwin(void) {
+	Status s = XInitThreads();
+	assert(0 != s);
+	
 	x_dat xd;
 	xd.d = XOpenDisplay(NULL);  // XCB has poor docs
 	Window x_drw = XDefaultRootWindow(xd.d);
@@ -72,15 +75,44 @@ static void initialize_surface(egl_dat *ed, x_dat *xd) {
 
 static glsh initialize_glshads(void) {
 	glsh sh = { 0 };
+	sh.ptrarr = malloc(2 * sizeof(char *));
+	sh.ptrarr_elemsz = malloc(2 * sizeof(ssize_t));
+	sh.ptrarr_len = 2;
 	
-	sh.ptr = safe_read("./texture1.rgb", &(sh.ptrsz));
-	assert(sh.ptr != NULL);
+	sh.ptrarr[0] = safe_read("./texture1.rgb", &(sh.ptrarr_elemsz[0]));
+	sh.ptrarr[1] = safe_read("./texture2.rgb", &(sh.ptrarr_elemsz[1]));
+	assert(sh.ptrarr[0] != NULL && sh.ptrarr[1] != NULL);
 	
 	return sh;
 }
 
-static bool cleanup(egl_dat *ed, x_dat *xd, glsh *sh) {
+static mtx_t mtx;
+static pid_t tiddy = 1;  // Thread ID to DestroY
+static bool tiddy_live = false;
+
+// Terminate the X11 event pump thread and destroy the global mutex.
+void terminate_pXE_thread(thrd_t *const thr) {
 	int ret;
+	
+	ret = mtx_lock(&mtx);
+	assert(ret == thrd_success);
+	if (tiddy_live) {
+		assert(tiddy > 0);
+		ret = kill(tiddy, SIGTERM);
+		assert(0 == ret);
+	}
+	ret = thrd_join(*thr, NULL);  // wait for thread's death
+	assert(ret == thrd_success);
+	//tiddy_live = false;
+	ret = mtx_unlock(&mtx);
+	assert(ret == thrd_success);
+	mtx_destroy(&mtx);
+}
+
+static bool cleanup(egl_dat *ed, x_dat *xd, glsh *sh, thrd_t *const thr) {
+	int ret;
+	
+	terminate_pXE_thread(thr);
 	
 	assert(sh);
 	
@@ -103,79 +135,175 @@ static bool cleanup(egl_dat *ed, x_dat *xd, glsh *sh) {
 	return true;
 }
 
-void handleKeys(const XEvent *const e, keys *const k) {
+void updateKeys(const XEvent *const e, keys *const k) {
 	const bool keyState = e->type == KeyPress;
-	uint32_t code = e->xkey.keycode;
+	uint32_t keyCode = e->xkey.keycode;
+	int ret;
 	
-	if (code == 38 || code == 40) {
-		if (code == 38)
+	ret = mtx_lock(&mtx);
+	assert(ret == thrd_success);
+	
+	if (keyCode == 38 || keyCode == 40) {
+		if (keyCode == 38)
 			k->keyA = keyState;
-		if (code == 40)
+		if (keyCode == 40)
 			k->keyD = keyState;
 		if (k->keyA && k->keyD)
 			k->keyA = k->keyD = false;
-	} else if (code == 25 || code == 39) {
-		if (code == 25)
+	} else if (keyCode == 25 || keyCode == 39) {
+		if (keyCode == 25)
 			k->keyW = keyState;
-		if (code == 39)
+		if (keyCode == 39)
 			k->keyS = keyState;
 		if (k->keyS && k->keyW)
 			k->keyS = k->keyW = false;
-	} else if (code == 27) {  // r
+	} else if (keyCode == 27) {  // r
 		k->keyR = keyState;
-	} else if (code == 31 || code == 45) {  // i, k
-		if (code == 31)
+	} else if (keyCode == 31 || keyCode == 45) {  // i, k
+		if (keyCode == 31)
 			k->keyI = keyState;
-		if (code == 45)
+		if (keyCode == 45)
 			k->keyK = keyState;
 		if (k->keyI && k->keyK)
 			k->keyI = k->keyK = false;
-	} else if (code == 44 || code == 46) {  // j, l
-		if (code == 44)
+	} else if (keyCode == 44 || keyCode == 46) {  // j, l
+		if (keyCode == 44)
 			k->keyJ = keyState;
-		if (code == 46)
+		if (keyCode == 46)
 			k->keyL = keyState;
 		if (k->keyJ && k->keyL)
 			k->keyJ = k->keyL = false;
-	} else if (code == 34 || code == 35) {
-		if (code == 34)
+	} else if (keyCode == 34 || keyCode == 35) {
+		if (keyCode == 34)
 			k->keyLeftBracket = keyState;
-		if (code == 35)
+		if (keyCode == 35)
 			k->keyRightBracket = keyState;
 		if (k->keyLeftBracket && k->keyRightBracket)
 			k->keyLeftBracket = k->keyRightBracket = false;
-	} else if (code == 113 || code == 114) {
-		if (code == 113)
+	} else if (keyCode == 113 || keyCode == 114) {
+		if (keyCode == 113)
 			k->keyLeft = keyState;
-		if (code == 114)
+		if (keyCode == 114)
 			k->keyRight = keyState;
 		if (k->keyLeft && k->keyRight)
 			k->keyLeft = k->keyRight = false;
-	} else if (code == 111 || code == 116) {
-		if (code == 111)
+	} else if (keyCode == 111 || keyCode == 116) {
+		if (keyCode == 111)
 			k->keyUp = keyState;
-		if (code == 116)
+		if (keyCode == 116)
 			k->keyDown = keyState;
 		if (k->keyUp && k->keyDown)
 			k->keyUp = k->keyDown = false;
-	} else if (code == 30 || code == 32) {
-		if (code == 30)
+	} else if (keyCode == 30 || keyCode == 32) {
+		if (keyCode == 30)
 			k->keyU = keyState;
-		if (code == 32)
+		if (keyCode == 32)
 			k->keyO = keyState;
 		if (k->keyU && k->keyO)
 			k->keyU = k->keyO = false;
-	} else if (code == 26) {
+	} else if (keyCode == 26) {
 		k->keyE = keyState;
-	} else if (code == 28) {
+	} else if (keyCode == 28) {
 		k->keyT = keyState;
 	} else
-		fprintf(stdout, "Key %d %s\n", code,
+		fprintf(stdout, "Key %d %s\n", keyCode,
 			keyState ? "KeyPress" : "KeyRelease");
+	
+	ret = mtx_unlock(&mtx);
+	assert(ret == thrd_success);
+}
+
+struct pXEargs {
+	x_dat *xd;
+	keys *k;
+} pXEargs;
+
+int pumpXEvents(void *p) {
+	assert(p);
+	struct pXEargs *args = (struct pXEargs *)p;
+	uint64_t now_xorg_timediff_sec = 0, keyPresses = 0;
+	bool seenFirstEvent = false;
+	struct timespec prev = { 0 };
+	int ret;
+	
+	ret = mtx_lock(&mtx);
+	assert(ret == thrd_success);
+	tiddy = gettid();  // non-portable :(
+	ret = mtx_unlock(&mtx);
+	assert(ret == thrd_success);
+	
+	for (;;) {
+		XEvent e = { 0 };
+		struct timespec now = { 0 };
+		
+		assert(TIME_UTC == timespec_get(&now, TIME_UTC));
+		if (elapsedTimeGreaterThanNS(&prev, &now, 1000000000)) {
+			prev = now;
+			keyPresses = 0;
+		}
+		
+		XLockDisplay(args->xd->d);
+		ret = mtx_lock(&mtx);
+		assert(ret == thrd_success);
+		tiddy_live = true;
+		ret = mtx_unlock(&mtx);
+		assert(ret == thrd_success);
+		XNextEvent(args->xd->d, &e);
+		XUnlockDisplay(args->xd->d);
+		
+		if (e.type != KeyPress && e.type != KeyRelease)
+			continue;
+		if (e.type == KeyPress && keyPresses++ > 25)
+			fprintf(stderr, "DEBUG: key ignored b/c quota exceeded\n");
+		else {
+			assert(TIME_UTC == timespec_get(&now, TIME_UTC));
+			if (!seenFirstEvent) {
+				now_xorg_timediff_sec = now.tv_sec - e.xkey.time/1000;
+				seenFirstEvent = true;
+			}
+			uint64_t approxX11time_sec = now.tv_sec - now_xorg_timediff_sec;
+			uint64_t keyAge = e.xkey.time/1000 - approxX11time_sec;
+			if (e.xkey.time/1000 < approxX11time_sec)  // approx = inaccurat
+				keyAge = approxX11time_sec - e.xkey.time/1000;
+			if (keyAge < 2) {
+				if (e.xkey.keycode == 24) {  // 'q'
+					ret = mtx_lock(&mtx);
+					assert(ret == thrd_success);
+					tiddy_live = false;
+					ret = mtx_unlock(&mtx);
+					//assert(ret = thrd_success);  // XXX debug broken
+					return 0;
+				}
+				updateKeys(&e, args->k);
+			} else
+				fprintf(stderr, "DEBUG: key age %llu, ignored\n",
+					(long long unsigned)keyAge);
+		}
+	}
+	assert(NULL);
+}
+
+static void wait_for_thread_to_launch(mtx_t *pmtx) {
+	int ret;
+	
+	for (;;) {  // wait for thread to launch
+		bool shouldBreak = false;
+		ret = mtx_lock(pmtx);
+		assert(ret == thrd_success);
+		if (tiddy_live)
+			shouldBreak = true;
+		ret = mtx_unlock(pmtx);
+		assert(ret == thrd_success);
+		if (shouldBreak)
+			break;
+		//fprintf(stderr, "waiting for thread to launch\n");
+	}
 }
 
 static bool fn(void) {
 	keys k = { 0 };
+	thrd_t thr;
+	int ret;
 	
 	egl_dat ed = initialize_egl();
 	x_dat xd = initialize_xwin();
@@ -183,61 +311,44 @@ static bool fn(void) {
 	
 	glsh sh = initialize_glshads();
 	glViewport(0, 0, 500, 400);
-	draw(&k, &sh);
+	draw(&k, &sh);  // initial paint (before multithreading occurs)
 	eglSwapBuffers(ed.d, ed.s);
-	
+
+	ret = mtx_init(&mtx, mtx_plain);
+	assert(ret == thrd_success);
+	struct pXEargs pXEargs = (struct pXEargs){ &xd, &k };
+	ret = thrd_create(&thr, pumpXEvents, &pXEargs);
+	assert(ret == thrd_success);
+	wait_for_thread_to_launch(&mtx);
+
 	struct timespec prev = { 0 };
-	uint64_t frames = 0, now_xorg_timediff_sec = 0, keyPresses = 0;
-	bool seenFirstEvent = false;
+	uint64_t frames = 0;
 	for (;;) {
-		XEvent e = { 0 };
 		struct timespec now = { 0 };
-		
 		assert(TIME_UTC == timespec_get(&now, TIME_UTC));
-		//sleep(1);
 		if (elapsedTimeGreaterThanNS(&prev, &now, 1000000000)) {
 			prev = now;
 			fprintf(stderr, "DEBUG: %llu frames\n", (long long unsigned)frames);
-			frames = 0, keyPresses = 0;
-		}
-		while (XCheckMaskEvent(xd.d, -1, &e)) {
-			if ((e.type == KeyPress || e.type == KeyRelease)) {
-				if (e.type == KeyPress && keyPresses++ > 25) {
-					fprintf(stderr, "DEBUG: key ignored b/c quota exceeded\n");
-					continue;
-				}
-				if (!seenFirstEvent) {
-					now_xorg_timediff_sec = now.tv_sec - e.xkey.time/1000;
-					seenFirstEvent = true;
-				}
-				uint64_t approxX11time_sec = now.tv_sec - now_xorg_timediff_sec;
-				uint64_t keyAge = e.xkey.time/1000 - approxX11time_sec;
-				if (e.xkey.time/1000 < approxX11time_sec)  // approx = inaccurat
-					keyAge = approxX11time_sec - e.xkey.time/1000;
-				if (keyAge < 2) {
-					if (e.xkey.keycode == 24)  // 'q'
-						return cleanup(&ed, &xd, &sh);
-					handleKeys(&e, &k);
-				} else {
-					fprintf(stderr, "DEBUG: key age %llu, ignored\n",
-						(long long unsigned)keyAge);
-				}
-			} else if (e.type == ResizeRequest) {
-				//XResizeRequestEvent xrre = e.xresizerequest;
-				//int w = xrre.width;
-				//int h = xrre.height;
-				//glViewport(0, 0, w, h);
-			}
+			frames = 0;
 		}
 
-		if (!draw(&k, &sh)) {
-			cleanup(&ed, &xd, &sh);
-			return false;
+		ret = mtx_lock(&mtx);
+		assert(ret == thrd_success);
+		ret = draw(&k, &sh);
+		if (!tiddy_live || !ret) {
+			ret = mtx_unlock(&mtx);
+			assert(ret == thrd_success);
+			cleanup(&ed, &xd, &sh, &thr);
+			return !tiddy_live;  // ???
 		}
+		ret = mtx_unlock(&mtx);
+		assert(ret == thrd_success);
+		
 		eglSwapBuffers(ed.d, ed.s);
 		frames++;
 	}
 	
+	assert(NULL);
 	return true;
 }
 
