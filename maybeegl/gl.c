@@ -185,59 +185,6 @@ void make_stencil(void) {
 	glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
 }
 
-void print_shader_log(uint32_t shader) {
-	int logLen;
-	glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLen);
-	if (logLen == 0)
-		return;
-	char *log = malloc(logLen);
-	assert(log);
-	
-	glGetShaderInfoLog(shader, logLen, NULL, log);
-	fprintf(stderr, "SHDR_LOG: %s\n", log);
-	free(log);
-	assert(NULL);
-}
-
-void shader_try(void) {
-	static bool ran = false;
-	if (ran)
-		return;
-	else
-		ran = true;
-	// get shader text
-	ssize_t vtxTXTlen = 0, fragTXTlen = 0;
-	const char *const vtxTXT = safe_read("./vtx1.txt", &vtxTXTlen);
-	const char *const fragTXT = safe_read("./frag1.txt", &fragTXTlen);
-	assert(vtxTXT && fragTXT);
-	
-	// create and build shaders
-	uint32_t vtxShdr = glCreateShader(GL_VERTEX_SHADER);
-	uint32_t fragShdr = glCreateShader(GL_FRAGMENT_SHADER);
-	glShaderSource(vtxShdr, 1, &vtxTXT, (const int *)&vtxTXTlen);
-	glShaderSource(fragShdr, 1, &fragTXT, (const int *)&fragTXTlen);
-	glCompileShader(vtxShdr);
-	int status;
-	glGetShaderiv(vtxShdr, GL_COMPILE_STATUS, &status);
-	if(GL_TRUE != status)
-		print_shader_log(vtxShdr);
-	glCompileShader(fragShdr);
-	glGetShaderiv(fragShdr, GL_COMPILE_STATUS, &status);
-	if(GL_TRUE != status)
-		print_shader_log(fragShdr);
-	
-	// create and link program
-	uint32_t prgm = glCreateProgram();
-	glAttachShader(prgm, vtxShdr);
-	glAttachShader(prgm, fragShdr);
-	glLinkProgram(prgm);
-	glGetProgramiv(prgm, GL_LINK_STATUS, &status);
-	assert(GL_TRUE == status);
-	
-	// use program?
-	glUseProgram(prgm);
-}
-
 bool draw(keys *const k, glsh* sh) {
 	glEnable(GL_STENCIL_TEST);
 	glClearColor(0, 0, 0, 1);
@@ -262,10 +209,7 @@ bool draw(keys *const k, glsh* sh) {
 		genTextures(sh, textures);
 	}
 
-	shader_try();
-
 	make_stencil();
-	
 
 	draw_planes(textures);
 		

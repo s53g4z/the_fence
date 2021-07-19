@@ -20,6 +20,7 @@ void crossProduct(float u[3], float v[3], float normal[3]) {
 }
 
 void fakeGluPerspective(void) {
+#ifndef USE_GLES2
 	const float fovy = 45, aspect = 1, zNear = 0.99, zFar = 425;
 	const float f = 1.0/(tan(fovy/2));
 	const float matrix[] = {
@@ -29,6 +30,7 @@ void fakeGluPerspective(void) {
 		0, 0, -1, 0,
 	};
 	glMultMatrixf(matrix);
+#endif
 }
 
 void print_curr_mv_matrix(float params[4][4]) {
@@ -116,6 +118,7 @@ void calculate_texture_coordinates(int dig, struct coord tc[4]) {
 	}
 }
 
+#ifdef USING_FULL_OPENGL
 // Helper fn for glPrintNum.
 void render_numbers(struct coord tc[4], ssize_t offsetX) {
 	glEnable(GL_TEXTURE_2D);
@@ -152,3 +155,4 @@ void glPrintNum(uint64_t num, uint32_t textures[2]) {
 		offsetX -= 1;
 	}
 }
+#endif
