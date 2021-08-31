@@ -1,0 +1,8 @@
+attribute vec4 vpos;
+varying vec4 pos;
+
+void main() {
+	gl_Position = vpos;
+	gl_PointSize = 10.0;
+	pos = vpos;
+}

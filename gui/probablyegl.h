@@ -25,6 +25,7 @@
 #include <time.h>
 #include <threads.h>
 #include <signal.h>
+#include <limits.h>
 
 typedef unsigned char bool;
 #define true 1
@@ -65,6 +66,8 @@ typedef struct keys keys;
 
 #undef SSIZE_MAX
 #define SSIZE_MAX ((ssize_t)(~0ULL >> 1))
+#undef SIZE_MAX
+#define SIZE_MAX ((size_t)(~0ULL))
 
 _Static_assert(sizeof(ssize_t) == 8, "");
 _Static_assert(sizeof(long long) == 8, "");

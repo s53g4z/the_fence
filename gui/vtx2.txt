@@ -1,0 +1,41 @@
+attribute vec4 vPos;
+//attribute vec2 aTexCoord;
+varying vec2 vTexCoord;
+
+uniform vec4 translationVec;
+uniform vec4 rotationVec;
+uniform float scaleFloat;
+
+void main() {
+	vec4 final = vPos;
+
+	float theta = rotationVec.y;
+	final.z = final.z * cos(theta) - final.x * sin(theta);
+	final.x = final.z * sin(theta) + final.x * cos(theta);
+
+	theta = rotationVec.x;
+	final.y = final.y * cos(theta) - final.z * sin(theta);
+	final.z = final.y * sin(theta) + final.z * cos(theta);
+
+	final = final + translationVec;
+
+	final = final * vec4(scaleFloat, scaleFloat, scaleFloat, 1.0);
+
+	// perspective? buggy :(
+	float fovy = 45.0;
+	float aspect = 1.0;
+	float zNear = 0.55;
+	float zFar = 100.0;
+	float f = 1.0/(tan(fovy/2.0));
+	mat4 matrix = mat4(
+		f/aspect, 0.0, 0.0, 0.0,
+		0.0, f, 0.0, 0.0,
+		0.0, 0.0, (zFar+zNear)/(zNear-zFar), (2.0*zFar*zNear)/(zNear-zFar),
+		0.0, 0.0, -1, 0.0
+	);
+	//final = matrix * final;
+	//
+
+	gl_Position = final;
+	vTexCoord = vec2(final) / 1.0;  // scale texture coordinates?
+}
