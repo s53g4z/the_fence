@@ -11,6 +11,7 @@
 #endif
 
 #include <X11/Xlib.h>
+#include <X11/XKBlib.h>
 
 #include <assert.h>
 #include <stdio.h>
@@ -42,6 +43,7 @@ typedef struct egl_data egl_dat;
 struct x_data {
 	Display *d;
 	Window w;
+	unsigned kbrTimeout, kbrInterval;
 };
 typedef struct x_data x_dat;
 

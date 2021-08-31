@@ -173,7 +173,9 @@ void *nnrealloc(void *oldptr, size_t newsz) {
 }
 
 WorldItem *worldItem_new(int x, int y, int wi, int h, float spx, float spy,
-	void *img) {
+	bool gravity, char *imgnam, void(*frame)(WorldItem *const)) {
+	//static int tunit = 0;
+	
 	assert(wi > 0 && h > 0);
 	WorldItem *w = nnmalloc(sizeof(WorldItem));
 	w->x = x;
@@ -182,7 +184,37 @@ WorldItem *worldItem_new(int x, int y, int wi, int h, float spx, float spy,
 	w->height = h;
 	w->speedX = spx;
 	w->speedY = spy;
-	w->img = img;
+	w->frame = frame;
+	w->gravity = gravity;
+	//w->texunit = tunit++;
+	glGenTextures(1, &w->texnam);
+	//w->imgnam = imgnam;
+	
+	ssize_t has_read;
+	char *imgmem = safe_read(imgnam, &has_read);
+	assert(has_read == 64 * 64 * 3);
+	// Do NOT switch the active texture unit!
+	// See https://web.archive.org/web/20210905013830/https://users.cs.jmu.edu/b
+	//     ernstdh/web/common/lectures/summary_opengl-texture-mapping.php
+	//glActiveTexture(GL_TEXTURE0 + w->texunit);  bug
+	glBindTexture(GL_TEXTURE_2D, w->texnam);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexImage2D(
+		GL_TEXTURE_2D,
+		0,
+		GL_RGB,
+		64,
+		64,
+		0,
+		GL_RGB,
+		GL_UNSIGNED_BYTE,
+		imgmem
+	);
+	free(imgmem);
+	assert(glGetError() == GL_NO_ERROR);
 	
 	return w;
 }

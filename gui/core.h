@@ -7,7 +7,10 @@ struct WorldItem {
 	int x, y;
 	int width, height;
 	float speedX, speedY;
-	void *img;
+//	int texunit;
+	uint32_t texnam;
+	bool gravity;
+	void (*frame)(struct WorldItem *const w);
 };
 typedef struct WorldItem WorldItem;
 
@@ -20,7 +23,8 @@ typedef WorldItem Player;
 
 void *nnmalloc(size_t sz);
 void *nnrealloc(void *, size_t);
-WorldItem *worldItem_new(int, int, int, int, float, float, void *);
+WorldItem *worldItem_new(int, int, int, int, float, float, bool, char *,
+	void (*)(WorldItem *const));
 int leftOf(const WorldItem *const);
 int rightOf(const WorldItem *const);
 int topOf(const WorldItem *const);

@@ -50,12 +50,22 @@ static egl_dat initialize_egl(void) {
 	return ed;
 }
 
+static void set_xkbrepeat(x_dat *const xd) {
+	//XkbGetAutoRepeatRate(xd->d, XkbUseCoreKbd,
+	//	&xd->kbrTimeout, &xd->kbrInterval);
+	// escape hatch (copy and paste): $ xset r rate 500 20;
+	xd->kbrTimeout = 500;
+	xd->kbrInterval = 50;
+	XkbSetAutoRepeatRate(xd->d, XkbUseCoreKbd, 25, 200);
+}
+
 static x_dat initialize_xwin(void) {
 	Status s = XInitThreads();
 	assert(0 != s);
 	
 	x_dat xd;
 	xd.d = XOpenDisplay(NULL);  // XCB has poor docs
+	set_xkbrepeat(&xd);
 	Window x_drw = XDefaultRootWindow(xd.d);
 	XSetWindowAttributes xswa = { 0 };
 	xswa.event_mask = KeyPressMask | KeyReleaseMask |
@@ -65,8 +75,8 @@ static x_dat initialize_xwin(void) {
 		x_drw,
 		10,
 		10,
-		500,
-		300,
+		640,
+		480,
 		0,
 		CopyFromParent,
 		InputOutput,
@@ -93,9 +103,9 @@ static glsh initialize_glshads(void) {
 	sh.ptrarr_elemsz = malloc(2 * sizeof(ssize_t));
 	sh.ptrarr_len = 2;
 	
-	sh.ptrarr[0] = safe_read("./texture1.rgb", &(sh.ptrarr_elemsz[0]));
-	sh.ptrarr[1] = safe_read("./texture2.rgb", &(sh.ptrarr_elemsz[1]));
-	assert(sh.ptrarr[0] != NULL && sh.ptrarr[1] != NULL);
+	//sh.ptrarr[0] = safe_read("./texture1.rgb", &(sh.ptrarr_elemsz[0]));
+	//sh.ptrarr[1] = safe_read("./texture2.rgb", &(sh.ptrarr_elemsz[1]));
+	//assert(sh.ptrarr[0] != NULL && sh.ptrarr[1] != NULL);
 	
 	return sh;
 }
@@ -143,6 +153,7 @@ static bool cleanup(egl_dat *ed, x_dat *xd, glsh *sh, thrd_t *const thr) {
 	
 	ret = XDestroyWindow(xd->d, xd->w);
 	assert(ret != BadWindow);
+	XkbSetAutoRepeatRate(xd->d, XkbUseCoreKbd, xd->kbrTimeout, xd->kbrInterval);
 	ret = XCloseDisplay(xd->d);
 	assert(ret != BadGC);
 
@@ -324,7 +335,7 @@ static bool fn(void) {
 	initialize_surface(&ed, &xd);
 	
 	glsh sh = initialize_glshads();
-	glViewport(0, 0, 300, 300);
+	glViewport(0, 0, 640, 640);
 	draw(&k, &sh);  // initial paint (before multithreading occurs)
 	eglSwapBuffers(ed.d, ed.s);
 
