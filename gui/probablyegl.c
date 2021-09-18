@@ -56,6 +56,7 @@ static void set_xkbrepeat(x_dat *const xd) {
 	// escape hatch (copy and paste): $ xset r rate 500 20;
 	xd->kbrTimeout = 500;
 	xd->kbrInterval = 50;
+	return;  // debug
 	XkbSetAutoRepeatRate(xd->d, XkbUseCoreKbd, 25, 200);
 }
 
