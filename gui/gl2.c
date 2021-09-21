@@ -1,12 +1,15 @@
+// gl2.c
+
 #include "probablyegl.h"
 #include "core.h"
 
-const int SCREEN_WIDTH = 640;
-const int SCREEN_HEIGHT = 480;
+const int SCREEN_WIDTH = 640, SCREEN_HEIGHT = 480;
+const int TILE_WIDTH = 32, TILE_HEIGHT = 32;
 int gScrollOffset = 0;
 
 typedef int Direction;
-enum { LEFT, RIGHT, UP, DOWN, GDIRECTION_HORIZ, GDIRECTION_VERT };
+enum { LEFT, RIGHT, UP, DOWN,
+	GDIRECTION_HORIZ, GDIRECTION_VERT, GDIRECTION_BOTH, };
 typedef int GeneralDirection;
 
 WorldItem **worldItems;  // array of pointers to WorldItem
@@ -45,34 +48,35 @@ bool isCollidingVertically(const WorldItem *const w,
 // iCW helper. Expand w in either the horizontal or vertical direction.
 void iCW_expand_w(WorldItem *const w, GeneralDirection dir) {
 	assert(w->x >= INT_MIN + 1 && w->y  >= INT_MIN + 1);
-	if (dir == GDIRECTION_HORIZ)
-		w->x--;
-	else
-		w->y--;
 	assert(w->width <= INT_MAX - 2 && w->height <= INT_MAX - 2);
-	if (dir == GDIRECTION_HORIZ)
+	if (dir == GDIRECTION_HORIZ || dir == GDIRECTION_BOTH) {
+		w->x--;
 		w->width += 2;
-	else
+	}
+	if (dir == GDIRECTION_VERT || dir == GDIRECTION_BOTH) {
+		w->y--;
 		w->height += 2;
+	}
 }
 
 // iCW helper. Shrink w in either the horizontal or vertical direction.
 void iCW_shrink_w(WorldItem *const w, GeneralDirection dir) {
-	if (dir == GDIRECTION_HORIZ)
+	if (dir == GDIRECTION_HORIZ || dir == GDIRECTION_BOTH) {
 		w->x++;
-	else
-		w->y++;
-	if (dir == GDIRECTION_HORIZ)
 		w->width -= 2;
-	else
+	}
+	if (dir == GDIRECTION_VERT || dir == GDIRECTION_BOTH) {
+		w->y++;
 		w->height -= 2;
+	}
 }
 
 // Return an array of WorldItems w is colliding with. The caller must free rv
 // (but not the pointers stored in rv).
 WorldItem **isCollidingWith(WorldItem *const w, size_t *const collisions_len,
 	GeneralDirection gdir) {
-	assert(gdir == GDIRECTION_HORIZ || gdir == GDIRECTION_VERT);
+	assert(gdir == GDIRECTION_HORIZ || gdir == GDIRECTION_VERT ||
+		gdir == GDIRECTION_BOTH);
 	iCW_expand_w(w, gdir);
 	WorldItem **rv = malloc(sizeof(WorldItem *) * 1);
 	*collisions_len = 0;
@@ -115,7 +119,7 @@ int canMoveX(WorldItem *const w) {
 		//	rightOf(w) + 1 == SCREEN_WIDTH))
 		//	shouldBreak = true;
 		if (w == player && ((w->speedX < 0 && leftOf(w) - 1 == 0) ||
-			(gScrollOffset + SCREEN_WIDTH >= lvl.width * 32 &&
+			(gScrollOffset + SCREEN_WIDTH >= lvl.width * TILE_WIDTH &&
 			w->speedX > 0 && rightOf(w) + 1 == SCREEN_WIDTH)))
 			shouldBreak = true;
 		else {
@@ -123,6 +127,8 @@ int canMoveX(WorldItem *const w) {
 			WorldItem **colls = isCollidingWith(w, &collisions_len,
 				GDIRECTION_HORIZ);
 			for (size_t i = 0; i < collisions_len; i++) {
+				if (colls[i]->type == STL_COIN)
+					continue;  // ignore coin collisions
 				if ((w->speedX > 0 && rightOf(w) + 1 == leftOf(colls[i])) ||
 					(w->speedX < 0 && leftOf(w) - 1 == rightOf(colls[i]))) {
 					shouldBreak = true;
@@ -164,6 +170,8 @@ int canMoveY(WorldItem *const w) {
 			WorldItem **colls = isCollidingWith(w, &collisions_len,
 				GDIRECTION_VERT);
 			for (size_t i = 0; i < collisions_len; i++) {
+				if (colls[i]->type == STL_COIN)
+					continue;  // ignore coin collisions
 				if (w->speedY > 0 && bottomOf(w) + 1 == topOf(colls[i])) {
 					shouldBreak = true;
 					break;
@@ -208,7 +216,7 @@ static void player_toggle_size() {
 }
 
 void deletefrom_worldItems(int index) {
-	assert(index > 0 && (size_t)index < worldItems_len);
+	assert(index >= 0 && (size_t)index < worldItems_len);
 	free(worldItems[index]);
 	memmove(&(worldItems[index]), &(worldItems[index+1]),
 		(worldItems_len - index - 1) * sizeof(WorldItem *));
@@ -217,7 +225,7 @@ void deletefrom_worldItems(int index) {
 
 void maybeScrollScreen() {
 	if (player->x <= SCREEN_WIDTH / 3 ||
-		gScrollOffset + SCREEN_WIDTH >= lvl.width * 32)
+		gScrollOffset + SCREEN_WIDTH >= lvl.width * TILE_WIDTH)
 		return;
 	
 	int diff = player->x - SCREEN_WIDTH / 3;
@@ -256,8 +264,13 @@ static void processInput(const keys *const k) {
 
 // Run the frame functions of elements of worldItems.
 static void applyFrame() {
-	for (size_t i = 0; i < worldItems_len; i++)
+	for (size_t i = 0; i < worldItems_len; i++)  // add to end ok, don't delete!
 		worldItems[i]->frame(worldItems[i]);
+		
+	// reap dead badguys and collected coins
+	for (size_t i = 0; i < worldItems_len; i++)
+		if (worldItems[i]->type == STL_DEAD)
+			deletefrom_worldItems(i--);
 }
 
 static void applyGravity() {
@@ -343,24 +356,112 @@ void fnret(WorldItem *self) {
 	return;
 }
 
+void pushto_worldItems(const WorldItem *const v);
+const WorldItem *worldItem_new_block(enum stl_obj_type type, int x, int y);
+
 // Callback for player frame.
 void fnpl(WorldItem *self) {
-	// do nothing
-	assert(self);
-	return;
+	size_t collisions_len;
+	WorldItem **colls = isCollidingWith(self, &collisions_len, GDIRECTION_BOTH);
+	for (size_t i = 0; i < collisions_len; i++) {
+		int x = (colls[i]->x + gScrollOffset) / TILE_WIDTH;
+		int y = colls[i]->y / TILE_HEIGHT;
+		switch (colls[i]->type) {
+			case SNOWBALL:
+			case MRICEBLOCK:
+			case MRBOMB:
+			case STALACTITE:
+			case BOUNCINGSNOWBALL:
+			case FLYINGSNOWBALL:
+				if (leftOf(self) - 1 == rightOf(colls[i]) ||
+					rightOf(self) + 1 == leftOf(colls[i])) {
+					fprintf(stderr, "You died.\n");
+					//exit(0);  // kill self todo
+				} else if (bottomOf(self) + 1 == topOf(colls[i]))
+					colls[i]->type = STL_DEAD;
+				break;
+			case STL_BONUS:
+				if (colls[i]->state == 1 &&  // bonus is active
+					topOf(self) - 1 == bottomOf(colls[i]) && y > 0) {
+					colls[i]->state = 0;  // deactivate (b/c one use only)
+					lvl.interactivetm[y - 1][x] = 44;
+					pushto_worldItems(worldItem_new_block(
+						STL_COIN,
+						colls[i]->x,
+						colls[i]->y - TILE_HEIGHT
+					));  // hairy!
+				}
+				break;
+			case STL_BRICK:
+				if (topOf(self) - 1 != bottomOf(colls[i]))
+					break;  // else fall thru, assign dead, rm from lvl.i..TM
+			case STL_COIN:
+				colls[i]->type = STL_DEAD;
+				assert(lvl.interactivetm[y][x] == 44 || lvl.interactivetm[y][x] == 77);
+				lvl.interactivetm[y][x] = 0;
+				break;
+			case STL_WIN:
+				fprintf(stderr, "You win!\n");
+				break;  // next level todo
+		}
+	}
+}
+
+// Turn around a WorldItem (that has two texnams). Relatively cheap fn.
+void turnAround(WorldItem *const self) {
+	self->speedX *= -1;  // toggle horizontal direction
+	uint32_t tmp = self->texnam;
+	self->texnam = self->texnam2;
+	self->texnam2 = tmp;
+}
+
+// for patrol or smthn
+void maybeTurnAround(WorldItem *const self) {
+	if (self->speedX == 0)
+		return;
+	int origX = self->x;
+	// calculate hypothetical move
+	if (self->speedX < 0)  // going left
+		self->x -= self->width;
+	else  // going right
+		self->x += self->width;
+
+	size_t collisions_len;
+	WorldItem **colls = isCollidingWith(self, &collisions_len,
+		GDIRECTION_VERT);
+	bool onSolidSurface = false;
+	for (size_t i = 0; i < collisions_len; i++) {
+		if (bottomOf(self) + 1 == topOf(colls[i])) {
+			onSolidSurface = true;
+			break;
+		}
+	}
+	free(colls);
+	if (!onSolidSurface)  // if gonna fall a hypothetical move, turn around
+		turnAround(self);
+	self->x = origX;
 }
 
 // Callback for bot frame.
 void fnbot(WorldItem *const self) {
+	if (self->patrol)
+		maybeTurnAround(self);  // patrol
+
 	int moveX = canMoveTo(self, GDIRECTION_HORIZ);
 	if (moveX == 0) {
-		self->speedX *= -1;  // toggle horizontal direction
-		uint32_t tmp = self->texnam;
-		self->texnam = self->texnam2;
-		self->texnam2 = tmp;
+		turnAround(self);
 	}
-	else
-		self->x += moveX;
+	self->x += moveX;
+}
+
+enum WorldItemState { ALIVE, DEAD };
+
+void fnsnowball(WorldItem *const self) {
+	fnbot(self);
+}
+
+void fniceblock(WorldItem *const self) {
+	fnbot(self);
 }
 
 // Push a WorldItem onto worldItems. (auto-inits and grows the array)
@@ -447,16 +548,38 @@ static void maybeInitgTextureNames() {
 	initGLTextureNam(gTextureNames[11], "textures/snow5.data", false);
 	initGLTextureNam(gTextureNames[12], "textures/snow6.data", false);
 	initGLTextureNam(gTextureNames[13], "textures/snow7.data", false);
-	initGLTextureNam(gTextureNames[15], "textures/snow9.data", false);
 	initGLTextureNam(gTextureNames[14], "textures/snow8.data", false);
+	initGLTextureNam(gTextureNames[15], "textures/snow9.data", false);
+	initGLTextureNam(gTextureNames[16], "textures/snow11.data", false);
+	gTextureNames[17] = gTextureNames[16];
+	gTextureNames[18] = gTextureNames[16];
+	initGLTextureNam(gTextureNames[19], "textures/snow13.data", false);
 	initGLTextureNam(gTextureNames[20], "textures/snow14.data", false);
 	initGLTextureNam(gTextureNames[21], "textures/snow15.data", false);
 	initGLTextureNam(gTextureNames[22], "textures/snow16.data", false);
 	initGLTextureNam(gTextureNames[23], "textures/snow17.data", false);
-	initGLTextureNam(gTextureNames[25], "textures/texture2.rgb", false);
+	initGLTextureNam(gTextureNames[25], "textures/background8.data", false);
 	initGLTextureNam(gTextureNames[26], "textures/bonus2.data", false);
+	initGLTextureNam(gTextureNames[27], "textures/block1.data", false);
+	initGLTextureNam(gTextureNames[28], "textures/block2.data", false);
+	initGLTextureNam(gTextureNames[29], "textures/block3.data", false);
 	initGLTextureNam(gTextureNames[44], "textures/coin1.data", false);
+	initGLTextureNam(gTextureNames[48], "textures/block5.data", false);
 	initGLTextureNam(gTextureNames[77], "textures/brick0.data", false);
+	gTextureNames[83] = gTextureNames[26];
+	initGLTextureNam(gTextureNames[85], "textures/cloud-00.data", false);
+	initGLTextureNam(gTextureNames[86], "textures/cloud-01.data", false);
+	initGLTextureNam(gTextureNames[87], "textures/cloud-02.data", false);
+	initGLTextureNam(gTextureNames[88], "textures/cloud-03.data", false);
+	initGLTextureNam(gTextureNames[89], "textures/cloud-10.data", false);
+	initGLTextureNam(gTextureNames[90], "textures/cloud-11.data", false);
+	initGLTextureNam(gTextureNames[91], "textures/cloud-12.data", false);
+	initGLTextureNam(gTextureNames[92], "textures/cloud-13.data", false);
+	gTextureNames[102] = gTextureNames[26];
+	initGLTextureNam(gTextureNames[113], "textures/snow20.data", false);
+	initGLTextureNam(gTextureNames[114], "textures/snow21.data", false);
+	gTextureNames[128] = gTextureNames[26];
+	
 	assert(glGetError() == GL_NO_ERROR);
 }
 
@@ -468,78 +591,132 @@ static void paintTile(uint8_t tileID, int x, int y) {
 		fprintf(stderr, "skipping a paintTile\n");
 		return;
 	}
+	if (tileID == 0)
+		return;
 	maybeInitgTextureNames();
 	
 	const float vertices[] = {
-		x+00, y+00, 1.0,
-		x+00, y+32, 1.0,
-		x+32, y+00, 1.0,
-		x+32, y+32, 1.0,
+		x			, y,				1.0,
+		x			, y+TILE_HEIGHT,	1.0,
+		x+TILE_WIDTH, y,				1.0,
+		x+TILE_WIDTH, y+TILE_HEIGHT,	1.0,
 	};
 	
 	return drawGLvertices(vertices, gTextureNames[tileID]);
 }
 
-// Handy convenience function to make a new block.
-const WorldItem *worldItem_new_block(int x, int y) {
-	return worldItem_new(x, y, 32, 32, 0, 0, false, NULL, fnret, false);
+// Handy convenience function to make a new block. x and y are screen coords.
+const WorldItem *worldItem_new_block(enum stl_obj_type type, int x, int y) {
+	WorldItem *const w = worldItem_new(type, x, y, TILE_WIDTH, TILE_HEIGHT,
+		0, 0, false, NULL, fnret, false, false);
+	if (type == STL_BONUS)
+		w->state = 1;
+	return w;
 }
 
 // Draw some nice (non-interactive) scenery.
 void paintTM(uint8_t **tm) {
-	const size_t nTilesScrolledOver = gScrollOffset / 32;
-	const bool playerIsBetweenTiles = gScrollOffset % 32 != 0 &&
-		gScrollOffset + SCREEN_WIDTH < lvl.width * 32 ? 1 : 0;
-	for (int h = 0; h < 480 / 32; h++)
+	const size_t nTilesScrolledOver = gScrollOffset / TILE_WIDTH;
+	const bool playerIsBetweenTiles = gScrollOffset % TILE_WIDTH != 0 &&
+		gScrollOffset + SCREEN_WIDTH < lvl.width * TILE_WIDTH ? 1 : 0;
+	for (int h = 0; h < SCREEN_HEIGHT / TILE_HEIGHT; h++)
 		for (size_t w = nTilesScrolledOver;
-			w < nTilesScrolledOver + 640 / 32 + playerIsBetweenTiles;
+			w < nTilesScrolledOver + SCREEN_WIDTH / TILE_WIDTH + playerIsBetweenTiles;
 			w++) {
-			int x = w * 32 - gScrollOffset;  // screen coordinates
-			int y = h * 32;  // ibid
+			int x = w * TILE_WIDTH - gScrollOffset;  // screen coordinates
+			int y = h * TILE_HEIGHT;  // ibid
 			paintTile(tm[h][w], x, y);
 		}
 }
 
-static void initialize() {
-	pushto_worldItems(worldItem_new(0, 0, 32, 32, 9, 1, true,
-		"textures/texture3.rgb", fnpl, false));
-	player = worldItems[0];
+static int cmpForUint8_t(const void *p, const void *q) {
+	const uint8_t *a = (const uint8_t *)p;
+	const uint8_t *b = (const uint8_t *)q;
+	int m = *a, n = *b;
+	return m - n;
+}
+
+// Helper for loadLevel.
+static void load_lvl_interactives() {
+	// Load in the interactives all at once, one time.
+	// (Painting for interactives happens elsewhere, repeatedly.)
+	for (int h = 0; h < lvl.height; h++)
+		for (int w = 0; w < lvl.width; w++) {
+			uint8_t tileID = lvl.interactivetm[h][w];
+			int x = w * TILE_WIDTH - gScrollOffset;  // screen coordinates
+			int y = h * TILE_HEIGHT;  // ibid
+			const uint8_t blocks[] = {  // tileIDs for solid tiles
+				10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 25,
+				27, 28, 29, 48, 102, 113, 114, 128,
+			};
+			const uint8_t ignored_tiles[] = {
+				7, 8, 9, 25, 85, 86, 87, 88, 89, 90, 91, 92, 126, 133,
+			};
+			if (bsearch(&tileID, blocks, sizeof(blocks)/sizeof(uint8_t), 
+				sizeof(uint8_t), cmpForUint8_t))
+				pushto_worldItems(worldItem_new_block(STL_BLOCK, x, y));
+			else if (tileID == 26 || tileID == 83)
+				pushto_worldItems(worldItem_new_block(STL_BONUS, x, y));
+			else if (tileID == 77)
+				pushto_worldItems(worldItem_new_block(STL_BRICK, x, y));
+			else if (tileID == 132)
+				pushto_worldItems(worldItem_new_block(STL_WIN, x, y));
+			else if (tileID == 44)
+				pushto_worldItems(worldItem_new_block(STL_COIN, x, y));
+			else if (tileID > 0 &&
+				!bsearch(&tileID, ignored_tiles,
+					sizeof(ignored_tiles)/sizeof(uint8_t), sizeof(uint8_t),
+					cmpForUint8_t))
+				fprintf(stderr, "DEBUG: unknown tileID %u\n", tileID);
+		}
+}
+
+// Helper for loadLevel.
+static void load_lvl_objects() {
+	for (size_t i = 0; i < lvl.objects_len; i++) {
+		WorldItem *w = NULL;
+		stl_obj *obj = &lvl.objects[i];
+		if (obj->type == SNOWBALL) {
+			w = worldItem_new(SNOWBALL, obj->x, obj->y,
+				TILE_WIDTH, TILE_HEIGHT, -3, 1, true,
+				"textures/snowball.data", fnsnowball, true, true);
+		} else if (obj->type == MRICEBLOCK) {
+			w = worldItem_new(MRICEBLOCK, obj->x, obj->y,
+				TILE_WIDTH, TILE_HEIGHT, -3, 1, true,
+				"textures/mriceblock.data", fniceblock, true, true);
+		} else
+			continue;
+		pushto_worldItems(w);
+	}
+}
+
+static bool loadLevel(const char *const level_filename) {
+	//assert(worldItems_len == 0);
+	//for (size_t i = 0; i < worldItems_len; i++) {
+	//	glDeleteTextures(1, &worldItems[i]->texnam);
+	//	glDeleteTextures(1, &worldItems[i]->texnam2);
+	//	free(worldItems[i]);
+	//}
+	//worldItems_len = 0;
 	
+	lvl = levelReader(level_filename);
+	if (!lvl.hdr)
+		return false;
+	stlPrinter(&lvl);
+	pushto_worldItems(worldItem_new(STL_PLAYER, lvl.start_pos_x,
+		lvl.start_pos_y, TILE_WIDTH, TILE_HEIGHT, 8, 1, true,
+		"textures/texture3.rgb", fnpl, false, false));
+	player = worldItems[0];
+	load_lvl_objects();
+	load_lvl_interactives();
+	
+	return true;
+}
+
+static void initialize() {
 	initialize_prgm();
 	
-	lvl = levelReader("level1.stl");
-	if (lvl.hdr) {
-		stlPrinter(&lvl);
-		if (lvl.height != 15)
-			fprintf(stderr, "WARN: lvl.height is unrecognized (%d)\n", lvl.height);
-		for (size_t i = 0; i < lvl.objects_len; i++) {
-			WorldItem *w = NULL;
-			stl_obj *obj = &lvl.objects[i];
-			if (obj->type == SNOWBALL) {
-				w = worldItem_new(obj->x, obj->y, 32, 32, -3, 1, true,
-					"textures/snowball.data", fnbot, true);  // debug obj->x
-			} else
-				continue;
-			pushto_worldItems(w);
-		}
-		// Load in the interactives all at once, one time.
-		// (Painting for interactives happens elsewhere, repeatedly.)
-		for (int h = 0; h < lvl.height; h++)
-			for (int w = 0; w < lvl.width; w++) {
-				uint8_t tileID = lvl.interactivetm[h][w];
-				int x = w * 32 - gScrollOffset;  // screen coordinates
-				int y = h * 32;  // ibid
-				if (tileID == 14 || tileID == 22 || tileID == 26 || tileID == 77 ||
-					tileID == 83 || tileID == 102 || tileID == 23 || tileID == 20 ||
-					tileID == 21 || tileID == 13 || tileID == 15 || tileID == 10 ||
-					tileID == 11 || tileID == 12)
-					pushto_worldItems(worldItem_new_block(x, y));
-				else if (tileID == 44) {
-					//const WorldItem *const w = worldItem_new(
-					//pushto_worldItems(w);  // todo: 44 is a coin
-				}
-			}
-	}
+	assert(loadLevel("level1.stl"));
 }
 
 // Return true if w is off-screen.
@@ -581,7 +758,7 @@ static void drawWorldItems() {
 	for (size_t i = 0; i < worldItems_len; i++) {
 		const WorldItem *const w = worldItems[i];
 		assert(w);
-		if (isOffscreen(w) || w->texnam == (uint32_t)-1)
+		if (isOffscreen(w) || w->texnam == 0)
 			continue;
 		
 		const float vertices[] = {
@@ -614,11 +791,18 @@ static void core(keys *const k, glsh *const sh) {
 	clearScreen();
 	paintTM(lvl.backgroundtm);
 	paintTM(lvl.interactivetm);
+	paintTM(lvl.foregroundtm);
 	drawWorldItems();
+	
+	if (player->type == STL_PLAYER_DEAD) {
+		assert(loadLevel("level1.stl"));
+	} else if (player->type == STL_PLAYER_ASCENDED) {
+		assert(loadLevel("level2.stl"));
+	}
 }
 
 bool draw(keys *const k, glsh *sh) {
-//	assert(k && sh);
 	core(k, sh);
 	return true;
 }
+

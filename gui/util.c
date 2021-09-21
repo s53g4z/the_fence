@@ -174,12 +174,12 @@ void *nnrealloc(void *oldptr, size_t newsz) {
 	return rv;
 }
 
-WorldItem *worldItem_new(int x, int y, int wi, int h, float spx, float spy,
-	bool gravity, char *imgnam, void(*frame)(WorldItem *const), bool ff) {
-	//static int tunit = 0;
-	
+WorldItem *worldItem_new(enum stl_obj_type type, int x, int y, int wi, int h,
+	float spx, float spy, bool gravity, char *imgnam,
+	void(*frame)(WorldItem *const), bool mirrable, bool patrol) {	
 	assert(wi > 0 && h > 0);
 	WorldItem *w = nnmalloc(sizeof(WorldItem));
+	w->type = type;
 	w->x = x;
 	w->y = y;
 	w->width = wi;
@@ -188,17 +188,18 @@ WorldItem *worldItem_new(int x, int y, int wi, int h, float spx, float spy,
 	w->speedY = spy;
 	w->frame = frame;
 	w->gravity = gravity;
-	//w->texunit = tunit++;
+	w->patrol = patrol;  // just a value, does nothing on its own
 	
+	w->texnam = 0;
+	w->texnam2 = 0;
 	if (imgnam) {
 		glGenTextures(1, &w->texnam);
 		initGLTextureNam(w->texnam, imgnam, false);
-		if (ff) {
+		if (mirrable) {
 			glGenTextures(1, &w->texnam2);
 			initGLTextureNam(w->texnam2, imgnam, true);
 		}
-	} else
-		w->texnam = (uint32_t)-1;
+	}
 	
 	return w;
 }
@@ -354,6 +355,9 @@ void stlPrinter(const stl *const lvl) {
 	fprintf(stderr, "}\n");
 	fprintf(stderr, "objects_len/cap: %lu/%lu\n", lvl->objects_len,
 		lvl->objects_cap);
+	
+	if (lvl->height != 15)
+		fprintf(stderr, "WARN: lvl.height unexpected (%d)\n", lvl->height);
 }
 
 stl levelReader(const char *const filename) {

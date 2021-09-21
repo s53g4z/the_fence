@@ -3,12 +3,35 @@
 #ifndef CORE_H
 #define CORE_H
 
+enum stl_obj_type {
+	STL_WIN,
+	STL_BLOCK,
+	STL_BONUS,
+	STL_BRICK,
+	STL_COIN,
+	STL_PLAYER,
+	STL_PLAYER_DEAD,
+	STL_PLAYER_ASCENDED,
+	STL_DEAD,
+	STL_INVALID_OBJ,
+	STL_NO_MORE_OBJ,
+	SNOWBALL,
+	MRICEBLOCK,
+	MRBOMB,
+	STALACTITE,
+	BOUNCINGSNOWBALL,
+	FLYINGSNOWBALL,
+	MONEY
+};
+
 struct WorldItem {
+	enum stl_obj_type type;
 	int x, y;
 	int width, height;
+	int state;  // manually set
 	float speedX, speedY;
 	uint32_t texnam, texnam2;
-	bool gravity;
+	bool gravity, patrol;
 	void (*frame)(struct WorldItem *const w);
 };
 typedef struct WorldItem WorldItem;
@@ -27,17 +50,6 @@ struct char_stack {
 };
 typedef struct char_stack char_stack;
 
-enum stl_obj_type {
-	STL_INVALID_OBJ,
-	STL_NO_MORE_OBJ,
-	SNOWBALL,
-	MRICEBLOCK,
-	MRBOMB,
-	STALACTITE,
-	BOUNCINGSNOWBALL,
-	FLYINGSNOWBALL,
-	MONEY
-};
 struct stl_obj {
 	enum stl_obj_type type;
 	int x, y;
@@ -62,8 +74,8 @@ typedef struct level stl;
 
 void *nnmalloc(size_t sz);
 void *nnrealloc(void *, size_t);
-WorldItem *worldItem_new(int, int, int, int, float, float, bool, char *,
-	void (*)(WorldItem *const), bool);
+WorldItem *worldItem_new(enum stl_obj_type, int, int, int, int, float, float, bool, char *,
+	void (*)(WorldItem *const), bool, bool);
 int leftOf(const WorldItem *const);
 int rightOf(const WorldItem *const);
 int topOf(const WorldItem *const);
