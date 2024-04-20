@@ -1,0 +1,240 @@
+//
+
+let nibbleToHex = nibble => {
+    if (nibble === undefined || nibble < 0 || nibble >= 16)
+        throw new Error("bad nibble");
+    let ret = "?"
+    if (nibble < 10)
+        ret = nibble + "0".charCodeAt(0);
+    else
+        ret = nibble - 10 + "a".charCodeAt(0);
+    return String.fromCharCode(ret);
+}
+
+let byteToHex = b => {
+    const lo = b & 0xf;
+    const hi = (b >> 4) & 0xf;
+    return nibbleToHex(hi) + nibbleToHex(lo);
+}
+
+let printUint8Array = uint8Array => {
+    let str = "";
+    for (let i = 0; i < uint8Array.length; i++) {
+        const b = uint8Array[i];
+        str += byteToHex(b);
+        str += " "
+    }
+    console.log(str);
+}
+
+let printArrayBuffer = arrayBuffer => {
+    const uint8Array = new Uint8Array(arrayBuffer);
+    return printUint8Array(uint8Array);
+}
+
+let strToUint8Array = s => {
+    const ret = new Uint8Array(s.length);
+
+    for (let i = 0; i < s.length; i++)
+        ret[i] = s.charCodeAt(i);
+
+    return ret;
+}
+
+let hexToByte = ch => {
+    const cc = ch.charCodeAt(0);
+    if (cc >= "0".charCodeAt(0) && cc <= "9".charCodeAt(0))
+        return (cc - "0".charCodeAt(0));
+    else if (cc >= "a".charCodeAt(0) && cc <= "f".charCodeAt(0))
+        return (cc - "a".charCodeAt(0) + 10);
+    else if (cc >= "A".charCodeAt(0) && cc <= "F".charCodeAt(0))
+        return (cc - "A".charCodeAt(0) + 10);
+    throw new Error("unrecognized input hex char");
+}
+
+let hexToUint8Array = s => {
+    if (s.length % 2 !== 0)
+        throw new Error("malformed hex string input");
+
+    const ret = new Uint8Array(s.length / 2);
+
+    for (let i = 0; i < ret.length; i++) {
+        const hi = hexToByte(s.charAt(i * 2));
+        const lo = hexToByte(s.charAt(i * 2 + 1));
+        ret[i] = (hi << 4) | lo;
+    }
+
+    return ret;
+}
+
+//let data = new Uint8Array(0);
+//crypto.subtle.digest("SHA-256", data).then(arrayBuffer => { //printArrayBuffer(arrayBuffer); }).catch(e => { throw e; });
+
+// let ck; crypto.subtle.importKey("raw", k, { name: "HMAC", hash: "SHA-1" }, true, ["sign"]).then( res => { ck = res; } ).catch(e => {throw e;})
+//crypto.subtle.sign("HMAC", ck, t).then(ab => {printArrayBuffer(ab);}).catch(e => {throw e;})
+
+// *** //
+
+let dessert = v => {
+    if (v)
+        return;
+    throw new Error("failed dessert:", v);
+}
+
+let palgo_digest = (payload, hashername) => {
+    return Promise.resolve().then(nil => {
+        return crypto.subtle.digest(hashername, payload);
+    }).then(ab => {
+        return new Uint8Array(ab);
+    });
+}
+
+let palgo_sha_1 = payload => {
+    return palgo_digest(payload, "SHA-1");
+}
+
+let palgo_sha_256 = payload => {
+    return palgo_digest(payload, "SHA-256");
+}
+
+// k/shared_secret
+// t/text/counter_value
+// a/SHA-1/SHA-256
+let phmac_compute = (k, t, a) => {
+    const ipad = 0x36;
+    const opad = 0x5c;
+
+    let block_len;  // Note: Hasher block length.
+    let l;  // Note: Hasher output length.
+    let k_padded;
+
+    return Promise.resolve().then(nil => {
+        block_len = 64;
+        if (k.length > block_len)  // todo replace k with hash-of-k
+            throw new Error("unimplemented long key computation");
+    
+        if (a === "SHA-1")
+            l = 20;
+        else if (a === "SHA-256")
+            l = 32;
+        else
+            throw new Error("unknown hasher output length");
+    
+        // Note: Step 1 yields `k_padded`.
+        k_padded = new Uint8Array(block_len + l);
+        for (let i = 0; i < block_len; i++)
+            k_padded[i] = k[i];
+    
+        // Note: Step 2 yields `k_padded_xor_ipad`.
+        const k_padded_xor_ipad = new Uint8Array(block_len + t.length);
+        for (let i = 0; i < block_len; i++)
+            k_padded_xor_ipad[i] = k_padded[i] ^ ipad;
+    
+        // Note: Step 3 yields `appended1` (aliases `k_padded_xor_ipad`).
+        const appended1 = k_padded_xor_ipad;
+        for (let i = 0; i < t.length; i++)
+            appended1[block_len + i] = t[i];
+    
+        // Note: Step 4 yields `inner_hash`.
+        const payload = new Uint8Array(
+          appended1.buffer, appended1.byteOffset, appended1.byteLength
+        );
+        if (a === "SHA-1")
+            return palgo_sha_1(payload);
+        else if (a === "SHA-256")
+            return palgo_sha_256(payload); 
+        else
+            throw new Error("unimplemented hasher");
+    }).then(inner_hash => {
+        // Note: Step 5 yields `k_padded_xor_opad` (aliases `k_padded`).
+        const k_padded_xor_opad = k_padded;
+        for (let i = 0; i < block_len; i++)
+            k_padded_xor_opad[i] ^= opad;
+    
+        // Note: Step 6 yields `appended2`.
+        const appended2 = k_padded_xor_opad;
+        for (let i = 0; i < l; i++)
+            appended2[block_len + i] = inner_hash[i];
+    
+        // Note: step 7 yields `outer_hash`.
+        if (a === "SHA-1")
+            return palgo_sha_1(appended2);
+        else if (a === "SHA-256")
+            return palgo_sha_256(appended2);
+    }).then(outer_hash => {
+        return outer_hash;
+    });
+}
+
+let hmac_dynamic_trunc_sha1 = bytes20 => {
+    const raw_offset = bytes20[19] & 0xf;
+    const buffer_offset = bytes20.byteOffset + raw_offset;
+    const p = new Uint8Array(bytes20.buffer, buffer_offset, 4);
+    p[0] = p[0] & 0x7f;
+    return p;
+}
+
+let hmac_st_to_num = sbits => {
+    let n = 0;
+    let digit = 0;
+
+    for (let i = sbits.length - 1; i >= 0; i--) {
+        const b = sbits[i];
+
+        for (let d = 0; d < 8; d++) {
+            if (b & (1 << d))
+                n += 1 << digit;
+            digit++;
+        }
+    }
+
+    return n;
+}
+
+let photp_compute = (k, c, a) => {
+    if (c.length != 8)
+        throw new Error("invalid input counter value length");
+
+    const NUM_DIGITS = 8;
+
+    return Promise.resolve().then(nil => {
+        return phmac_compute(k, c, a);
+    }).then(hs => {
+        const sbits = hmac_dynamic_trunc_sha1(hs);
+        const snum = hmac_st_to_num(sbits);
+        const ret = snum % Math.pow(10, NUM_DIGITS);
+
+        return ret;
+    });
+}
+
+let numberToUint8Array = n => {
+    const BUFFER_LENGTH = 8;
+    const ret = new Uint8Array(BUFFER_LENGTH);
+
+    for (let digit = 0; n; digit++) {
+        dessert(digit >= 0 && digit < BUFFER_LENGTH * 8);
+        const rem = n % 2;
+        n = Math.floor(n / 2);
+
+        const offset = BUFFER_LENGTH - 1 - Math.floor(digit / BUFFER_LENGTH);
+        ret[offset] |= rem << (digit % BUFFER_LENGTH);
+    }
+
+    return ret;
+}
+
+// k/shared_secret
+// a: must be "SHA-1"
+// currMillis: optional; defaults to `Date.now()`
+let ptotp_compute = (k, a, currMillis) => {
+    const x = 30;  // Note: time-step defaults to 30 seconds
+    const t0 = 0;  // Note: start-time is 1970/01/01
+
+    // Note: c/counter_value/timebased_value
+    const t = Math.floor((Math.round((currMillis ?? Date.now()) / 1000) - t0) / x);
+    const c = numberToUint8Array(t);
+
+    return photp_compute(k, c, a);
+}
+

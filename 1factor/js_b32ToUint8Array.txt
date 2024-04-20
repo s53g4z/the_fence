@@ -1,0 +1,59 @@
+let dumpUint8ArrayAsString = u8a => {
+    let str = "";
+    for (let i = 0; i < u8a.length; i++)
+        str += String.fromCharCode(u8a[i]);
+    console.log(str);
+}
+
+let charCodeOf = ch => {
+    return ch.charCodeAt(0);
+}
+
+let b32CcToOriginalValue = cc => {
+    if (cc >= charCodeOf("A") && cc <= charCodeOf("Z"))
+        return cc - charCodeOf("A");
+    else if (cc >= charCodeOf("2") && cc <= charCodeOf("7"))
+        return cc - charCodeOf("2") + 26;
+    throw new Error("unrecognized base32 character");
+}
+
+let b32ToUint8Array = b32 => {
+    const CHAR_BITS = 8;
+    const B32_BITS = 5;
+
+    let b32_len = b32.length;
+    for (; b32_len - 1 >= 0 && b32.charAt(b32_len - 1) === "="; b32_len--);
+    const buffer_len = Math.floor(b32_len * B32_BITS / CHAR_BITS);
+    const ret = new Uint8Array(buffer_len);
+
+    for (
+        let arrOffset = 0, filled = 0, b32Index = 0;
+        arrOffset < ret.length && b32Index < b32_len;
+        b32Index++
+    ) {
+        const originalValue = b32CcToOriginalValue(b32.charCodeAt(b32Index));
+    
+        const numBitsOnLeft = CHAR_BITS - filled;
+        if (numBitsOnLeft >= 5) {
+            ret[arrOffset] |=
+                originalValue << (CHAR_BITS - B32_BITS - filled);
+            filled += 5;
+            if (filled == CHAR_BITS) {
+                arrOffset++;
+                filled = 0;
+            }
+        } else {
+            ret[arrOffset] |=
+                originalValue >>> (B32_BITS - numBitsOnLeft);
+            const numBitsOnRight = filled - (CHAR_BITS - B32_BITS);
+            ret[arrOffset + 1] |= (
+                (originalValue & (0x1f >>> (B32_BITS - numBitsOnRight)))
+                << (CHAR_BITS - numBitsOnRight)
+            );
+            filled = numBitsOnRight;
+            arrOffset++;
+        }
+    }
+
+    return ret;
+}
